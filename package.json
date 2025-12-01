@@ -1,0 +1,8 @@
+{
+  "dependencies": {
+    "@supabase/supabase-js": "^2.84.0",
+    "lucide-react-native": "^0.554.0",
+    "react-native-svg": "^15.15.0",
+    "react-native-url-polyfill": "^3.0.0"
+  }
+}
