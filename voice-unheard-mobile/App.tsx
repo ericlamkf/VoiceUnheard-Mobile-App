@@ -25,9 +25,34 @@ import { Home, PlusCircle, Shield, Heart, MessageCircle, X, BookOpen, ExternalLi
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
+import { decode } from 'base64-arraybuffer';
 
 // Logo image
 const logoImage = require('./assets/logo1.png');
+const umanyLogo = require('./assets/umany_logo.png');
+
+// Custom Avatar Assets
+const AVATARS = [
+  require('./assets/cartoon_avatar_1_1766169161268.png'),
+  require('./assets/cartoon_avatar_2_1766169177706.png'),
+  require('./assets/cartoon_avatar_3_1766169194878.png'),
+  require('./assets/cartoon_avatar_4_1766169213868.png'),
+];
+
+// Helper to get consistent random avatar based on ID
+const getAvatarForId = (id: string | undefined) => {
+  if (!id) return AVATARS[Math.floor(Math.random() * AVATARS.length)];
+
+  // Simple hash function to get consistent index from ID string
+  let hash = 0;
+  for (let i = 0; i < id.length; i++) {
+    hash = ((hash << 5) - hash) + id.charCodeAt(i);
+    hash |= 0; // Convert to 32bit integer
+  }
+
+  const index = Math.abs(hash) % AVATARS.length;
+  return AVATARS[index];
+};
 
 // Screen dimensions
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -49,7 +74,7 @@ const supabase = createClient(supabaseUrl, supabaseKey);
 
 // Types
 type Tab = 'feed' | 'speak' | 'admin' | 'learn' | 'help' | 'profile';
-type UserRole = 'user' | 'moderator' | null;
+type UserRole = 'user' | 'moderator' | 'admin' | null;
 
 interface Post {
   id: string;
@@ -151,7 +176,7 @@ export default function App() {
   const [isLoginMode, setIsLoginMode] = useState(true);
   const [emailFocused, setEmailFocused] = useState(false);
   const [passwordFocused, setPasswordFocused] = useState(false);
-  
+
   // Animated values for input borders
   const emailBorderAnim = useRef(new Animated.Value(0)).current;
   const passwordBorderAnim = useRef(new Animated.Value(0)).current;
@@ -193,7 +218,7 @@ export default function App() {
       try {
         // Get current session
         const { data: { session }, error } = await supabase.auth.getSession();
-        
+
         if (error) throw error;
 
         if (mounted) {
@@ -258,10 +283,10 @@ export default function App() {
           'Harassment': ['Harassment'],
           'Other': ['Other'],
         };
-        
+
         // Get all possible category names that might match this filter
         const possibleCategories = categoryVariations[selectedCategory] || [selectedCategory];
-        
+
         // Use .in() to match any of the possible category names
         query = query
           .in('category', possibleCategories)
@@ -271,7 +296,7 @@ export default function App() {
       const { data, error } = await query;
 
       if (error) throw error;
-      
+
       // Fetch comment counts for all posts
       const postsWithCounts = await Promise.all(
         (data || []).map(async (post: any) => {
@@ -280,7 +305,7 @@ export default function App() {
             .from('comments')
             .select('*', { count: 'exact', head: true })
             .eq('post_id', post.id);
-          
+
           return {
             ...post,
             likes_count: post.likes_count ?? 0,
@@ -289,7 +314,7 @@ export default function App() {
           };
         })
       );
-      
+
       // For Trending, prioritize verified posts, then sort by likes_count
       let sortedPosts = postsWithCounts;
       if (selectedCategory === 'Trending') {
@@ -302,7 +327,7 @@ export default function App() {
           return (b.likes_count ?? 0) - (a.likes_count ?? 0);
         });
       }
-      
+
       setFeedPosts(sortedPosts);
     } catch (error: any) {
       Alert.alert('Error', error.message || 'Failed to load posts');
@@ -322,13 +347,13 @@ export default function App() {
           .from('posts')
           .select('*', { count: 'exact', head: true })
           .eq('is_approved', true),
-        
+
         // 2. Top Category: Get all categories and find the mode
         supabase
           .from('posts')
           .select('category')
           .eq('is_approved', true),
-        
+
         // 3. Today's Voices: Count posts created today
         (async () => {
           const today = new Date();
@@ -344,7 +369,7 @@ export default function App() {
 
       // Process results
       const totalVoices = totalResult.count ?? 0;
-      
+
       // Find most frequent category
       const categories = categoriesResult.data || [];
       const categoryCounts: Record<string, number> = {};
@@ -352,7 +377,7 @@ export default function App() {
         const cat = post.category || 'Other';
         categoryCounts[cat] = (categoryCounts[cat] || 0) + 1;
       });
-      
+
       let topCategory = 'None';
       let maxCount = 0;
       Object.entries(categoryCounts).forEach(([category, count]) => {
@@ -361,7 +386,7 @@ export default function App() {
           topCategory = category;
         }
       });
-      
+
       const todayCount = todayResult.count ?? 0;
 
       setStats({
@@ -411,7 +436,7 @@ export default function App() {
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-      
+
       // Fetch comment counts for all posts
       const postsWithCounts = await Promise.all(
         (data || []).map(async (post: any) => {
@@ -420,7 +445,7 @@ export default function App() {
             .from('comments')
             .select('*', { count: 'exact', head: true })
             .eq('post_id', post.id);
-          
+
           return {
             ...post,
             likes_count: post.likes_count ?? 0,
@@ -428,7 +453,7 @@ export default function App() {
           };
         })
       );
-      
+
       setAdminPosts(postsWithCounts);
       // Also update pending count after fetching admin posts
       await fetchPendingCount();
@@ -690,7 +715,7 @@ export default function App() {
         console.error('Comment insert error:', error);
         throw error;
       }
-      
+
       console.log('Comment created successfully with user_id:', commentData.user_id || 'none');
 
       // Add comment to local state
@@ -816,26 +841,24 @@ export default function App() {
   };
 
   // Upload image to Supabase Storage
+  // Upload image to Supabase Storage
+  // Upload image to Supabase Storage
   const uploadImageToSupabase = async (base64Data: string): Promise<string | null> => {
     try {
       setUploadingImage(true);
-      
-      // Convert base64 to ArrayBuffer then to Uint8Array for React Native
-      const base64Response = await fetch(`data:image/jpeg;base64,${base64Data}`);
-      const blob = await base64Response.blob();
-      
+
+      // Convert base64 to ArrayBuffer
+      // This avoids Blob issues on React Native entirely
+      const arrayBuffer = decode(base64Data);
+
       // Generate unique filename
       const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.jpg`;
       const filePath = fileName;
 
-      // Convert blob to arrayBuffer then to Uint8Array for React Native compatibility
-      const arrayBuffer = await blob.arrayBuffer();
-      const uint8Array = new Uint8Array(arrayBuffer);
-
-      // Upload to Supabase Storage using Uint8Array
+      // Upload to Supabase Storage using ArrayBuffer
       const { data, error } = await supabase.storage
         .from('evidence')
-        .upload(filePath, uint8Array, {
+        .upload(filePath, arrayBuffer, {
           contentType: 'image/jpeg',
           upsert: false,
         });
@@ -850,6 +873,16 @@ export default function App() {
       return urlData.publicUrl;
     } catch (error: any) {
       console.error('Upload error:', error);
+
+      // Check for Row-Level Security (RLS) error
+      if (error.message && error.message.includes('row-level security policy')) {
+        Alert.alert(
+          'Permission Error',
+          'Upload rejected by server. Please check your Supabase Storage policies to allow public uploads to the "evidence" bucket.'
+        );
+        return null; // Return null effectively cancels the upload flow
+      }
+
       throw error;
     } finally {
       setUploadingImage(false);
@@ -867,8 +900,11 @@ export default function App() {
         return;
       }
 
-      // Get current position
-      const position = await Location.getCurrentPositionAsync({});
+      // Get current position with balanced accuracy to improve success rate on emulators
+      // and prevent timeouts
+      const position = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
       const { latitude, longitude } = position.coords;
 
       // Reverse geocode to get address
@@ -885,14 +921,20 @@ export default function App() {
           address.region,
           address.country,
         ].filter(Boolean); // Remove null/undefined values
-        
+
         const formattedAddress = addressParts.join(', ');
         setLocation(formattedAddress);
       } else {
-        Alert.alert('Error', 'Could not determine your location. Please try again.');
+        Alert.alert('Location Error', 'Could not determine address from coordinates.');
       }
     } catch (error: any) {
-      Alert.alert('Error', error.message || 'Failed to detect location');
+      console.log('Location error:', error);
+      // Give more helpful error message based on common issues
+      if (error.code === 'E_LOCATION_SETTINGS_UNSATISFIED') {
+        Alert.alert('Location Disabled', 'Please enable location services on your device.');
+      } else {
+        Alert.alert('Location Error', 'Failed to detect location. If you are on an emulator, ensure a location is set in the emulator settings.');
+      }
     } finally {
       setIsFetchingLocation(false);
     }
@@ -923,7 +965,7 @@ export default function App() {
       // Determine author details
       let name: string;
       let avatarUrl: string;
-      
+
       if (session?.user) {
         // Use part of email as placeholder name
         name = session.user.email?.split('@')[0] || 'Community Member';
@@ -976,6 +1018,38 @@ export default function App() {
     } finally {
       setSubmitting(false);
     }
+  };
+
+  // Delete post (Admin/Moderator only)
+  const handleDeletePost = async (postId: string) => {
+    Alert.alert(
+      'Delete Post',
+      'Are you sure you want to delete this post? This action cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const { error } = await supabase
+                .from('posts')
+                .delete()
+                .eq('id', postId);
+
+              if (error) throw error;
+
+              // Remove from local state
+              setFeedPosts((prev) => prev.filter((post) => post.id !== postId));
+              Alert.alert('Success', 'Post deleted successfully');
+            } catch (error: any) {
+              console.error('Error deleting post:', error);
+              Alert.alert('Error', 'Failed to delete post');
+            }
+          },
+        },
+      ]
+    );
   };
 
   // Approve post
@@ -1136,7 +1210,8 @@ export default function App() {
               <Text style={styles.tabTitle}>Feeds</Text>
             </View>
           </View>
-          
+
+          <CollaboratorBanner />
           {/* Impact Dashboard - Loading State */}
           <View style={styles.impactDashboard}>
             <Text style={styles.impactDashboardTitle}>Our Collective Impact</Text>
@@ -1166,7 +1241,7 @@ export default function App() {
               </View>
             </View>
           </View>
-          
+
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
@@ -1212,7 +1287,8 @@ export default function App() {
               <Text style={styles.tabTitle}>Feeds</Text>
             </View>
           </View>
-          
+
+          <CollaboratorBanner />
           {/* Impact Dashboard */}
           <View style={styles.impactDashboard}>
             <Text style={styles.impactDashboardTitle}>Our Collective Impact</Text>
@@ -1302,7 +1378,8 @@ export default function App() {
                 <LogOut size={20} color="#64748b" />
               </TouchableOpacity>
             </View>
-            
+
+            <CollaboratorBanner />
             {/* Impact Dashboard */}
             <View style={styles.impactDashboard}>
               <Text style={styles.impactDashboardTitle}>Our Collective Impact</Text>
@@ -1317,10 +1394,10 @@ export default function App() {
                   </Text>
                   <Text style={styles.impactStatLabel}>Total Voices Heard</Text>
                 </View>
-                
+
                 {/* Divider */}
                 <View style={styles.impactStatDivider} />
-                
+
                 {/* Top Issue Block */}
                 <View style={styles.impactStatBlock}>
                   <View style={styles.impactStatIconContainer}>
@@ -1331,10 +1408,10 @@ export default function App() {
                   </Text>
                   <Text style={styles.impactStatLabel}>Top Issue Today</Text>
                 </View>
-                
+
                 {/* Divider */}
                 <View style={styles.impactStatDivider} />
-                
+
                 {/* Today's Voices Block */}
                 <View style={styles.impactStatBlock}>
                   <View style={styles.impactStatIconContainer}>
@@ -1347,7 +1424,7 @@ export default function App() {
                 </View>
               </View>
             </View>
-            
+
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
@@ -1390,7 +1467,7 @@ export default function App() {
               <View style={styles.postAuthorSection}>
                 <View style={styles.postAuthorLeft}>
                   <Image
-                    source={{ uri: item.author_avatar_url || 'https://api.dicebear.com/7.x/abstract/png?seed=anonymous' }}
+                    source={item.author_avatar_url ? { uri: item.author_avatar_url } : getAvatarForId(item.id)}
                     style={styles.postAuthorAvatar}
                   />
                   <View style={styles.postAuthorInfo}>
@@ -1412,6 +1489,16 @@ export default function App() {
                   <Text style={styles.postCategory}>{item.category}</Text>
                   {item.location && (
                     <Text style={styles.postLocation}>{item.location}</Text>
+                  )}
+                  {/* Admin/Moderator Delete Action */}
+                  {(userRole === 'moderator' || userRole === 'admin') && (
+                    <TouchableOpacity
+                      onPress={() => handleDeletePost(item.id)}
+                      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                      style={{ marginLeft: 8 }}
+                    >
+                      <Trash2 size={16} color="#ef4444" />
+                    </TouchableOpacity>
                   )}
                 </View>
               </View>
@@ -1605,165 +1692,165 @@ export default function App() {
             Your story matters. Share what's on your mind.
           </Text>
 
-        <Text style={styles.label}>Title</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="Give your voice a title"
-          placeholderTextColor="#64748b"
-          value={title}
-          onChangeText={setTitle}
-          maxLength={100}
-        />
+          <Text style={styles.label}>Title</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Give your voice a title"
+            placeholderTextColor="#64748b"
+            value={title}
+            onChangeText={setTitle}
+            maxLength={100}
+          />
 
-        <Text style={styles.label}>Location (Optional e.g., 'City, Country')</Text>
-        <View style={styles.locationInputContainer}>
-          <View style={styles.locationInputLeft}>
-            <MapPin size={20} color="#64748b" style={styles.locationIcon} />
-            <TextInput
-              style={styles.locationInput}
-              placeholder="Enter location (optional)"
-              placeholderTextColor="#64748b"
-              value={location}
-              onChangeText={setLocation}
-              maxLength={100}
-              editable={!isFetchingLocation}
-            />
+          <Text style={styles.label}>Location (Optional e.g., 'City, Country')</Text>
+          <View style={styles.locationInputContainer}>
+            <View style={styles.locationInputLeft}>
+              <MapPin size={20} color="#64748b" style={styles.locationIcon} />
+              <TextInput
+                style={styles.locationInput}
+                placeholder="Enter location (optional)"
+                placeholderTextColor="#64748b"
+                value={location}
+                onChangeText={setLocation}
+                maxLength={100}
+                editable={!isFetchingLocation}
+              />
+            </View>
+            <TouchableOpacity
+              style={styles.locationDetectButton}
+              onPress={handleDetectLocation}
+              disabled={isFetchingLocation}
+              activeOpacity={0.7}
+            >
+              {isFetchingLocation ? (
+                <Animated.View style={{ transform: [{ rotate: locationSpin }] }}>
+                  <Loader2 size={18} color="#8b5cf6" />
+                </Animated.View>
+              ) : (
+                <Text style={styles.locationDetectButtonText}>Detect Location</Text>
+              )}
+            </TouchableOpacity>
           </View>
+
+          <Text style={styles.label}>Category</Text>
           <TouchableOpacity
-            style={styles.locationDetectButton}
-            onPress={handleDetectLocation}
-            disabled={isFetchingLocation}
-            activeOpacity={0.7}
+            style={styles.categoryButton}
+            onPress={() => setCategoryModalVisible(true)}
           >
-            {isFetchingLocation ? (
-              <Animated.View style={{ transform: [{ rotate: locationSpin }] }}>
-                <Loader2 size={18} color="#8b5cf6" />
-              </Animated.View>
+            <Text style={styles.categoryButtonText}>{category}</Text>
+            <Text style={styles.categoryButtonArrow}>▼</Text>
+          </TouchableOpacity>
+
+          <Text style={styles.label}>Your Story</Text>
+          <TextInput
+            style={[styles.input, styles.textArea]}
+            placeholder="Share your thoughts, experiences, or feelings..."
+            placeholderTextColor="#64748b"
+            value={content}
+            onChangeText={setContent}
+            multiline
+            numberOfLines={8}
+            textAlignVertical="top"
+            maxLength={2000}
+          />
+
+          <TouchableOpacity
+            style={styles.attachButton}
+            onPress={handlePickImage}
+            disabled={submitting}
+          >
+            <Text style={styles.attachButtonText}>Attach Evidence (Photo)</Text>
+          </TouchableOpacity>
+
+          {/* Image Preview */}
+          {selectedImage && (
+            <View style={styles.imagePreviewContainer}>
+              <Image source={{ uri: selectedImage.uri }} style={styles.imagePreview} />
+              <TouchableOpacity
+                style={styles.removeImageButton}
+                onPress={handleRemoveImage}
+                disabled={submitting}
+              >
+                <X size={20} color="#ffffff" />
+              </TouchableOpacity>
+            </View>
+          )}
+
+          <TouchableOpacity
+            style={[styles.submitButton, submitting && styles.submitButtonDisabled]}
+            onPress={handleSubmitPost}
+            disabled={submitting || uploadingImage}
+          >
+            {(submitting || uploadingImage) ? (
+              <ActivityIndicator size="small" color="#ffffff" />
             ) : (
-              <Text style={styles.locationDetectButtonText}>Detect Location</Text>
+              <Text style={styles.submitButtonText}>
+                {uploadingImage ? 'Uploading Image...' : 'Submit Your Voice'}
+              </Text>
             )}
           </TouchableOpacity>
-        </View>
 
-        <Text style={styles.label}>Category</Text>
-        <TouchableOpacity
-          style={styles.categoryButton}
-          onPress={() => setCategoryModalVisible(true)}
+          <Text style={styles.disclaimerText}>
+            Your submission will be reviewed before being published.
+          </Text>
+        </ScrollView>
+
+        {/* Anonymity Guarantee Modal */}
+        <Modal
+          visible={showSafetyModal}
+          transparent={true}
+          animationType="fade"
+          onRequestClose={() => setShowSafetyModal(false)}
         >
-          <Text style={styles.categoryButtonText}>{category}</Text>
-          <Text style={styles.categoryButtonArrow}>▼</Text>
-        </TouchableOpacity>
-
-        <Text style={styles.label}>Your Story</Text>
-        <TextInput
-          style={[styles.input, styles.textArea]}
-          placeholder="Share your thoughts, experiences, or feelings..."
-          placeholderTextColor="#64748b"
-          value={content}
-          onChangeText={setContent}
-          multiline
-          numberOfLines={8}
-          textAlignVertical="top"
-          maxLength={2000}
-        />
-
-        <TouchableOpacity
-          style={styles.attachButton}
-          onPress={handlePickImage}
-          disabled={submitting}
-        >
-          <Text style={styles.attachButtonText}>Attach Evidence (Photo)</Text>
-        </TouchableOpacity>
-
-        {/* Image Preview */}
-        {selectedImage && (
-          <View style={styles.imagePreviewContainer}>
-            <Image source={{ uri: selectedImage.uri }} style={styles.imagePreview} />
-            <TouchableOpacity
-              style={styles.removeImageButton}
-              onPress={handleRemoveImage}
-              disabled={submitting}
-            >
-              <X size={20} color="#ffffff" />
-            </TouchableOpacity>
-          </View>
-        )}
-
-        <TouchableOpacity
-          style={[styles.submitButton, submitting && styles.submitButtonDisabled]}
-          onPress={handleSubmitPost}
-          disabled={submitting || uploadingImage}
-        >
-          {(submitting || uploadingImage) ? (
-            <ActivityIndicator size="small" color="#ffffff" />
-          ) : (
-            <Text style={styles.submitButtonText}>
-              {uploadingImage ? 'Uploading Image...' : 'Submit Your Voice'}
-            </Text>
-          )}
-        </TouchableOpacity>
-
-        <Text style={styles.disclaimerText}>
-          Your submission will be reviewed before being published.
-        </Text>
-      </ScrollView>
-
-      {/* Anonymity Guarantee Modal */}
-      <Modal
-        visible={showSafetyModal}
-        transparent={true}
-        animationType="fade"
-        onRequestClose={() => setShowSafetyModal(false)}
-      >
-        <View style={styles.safetyModalOverlay}>
-          <View style={styles.safetyModalContainer}>
-            {/* Header */}
-            <View style={styles.safetyModalHeader}>
-              <View style={styles.safetyModalIconContainer}>
-                <ShieldCheck size={48} color="#8b5cf6" />
+          <View style={styles.safetyModalOverlay}>
+            <View style={styles.safetyModalContainer}>
+              {/* Header */}
+              <View style={styles.safetyModalHeader}>
+                <View style={styles.safetyModalIconContainer}>
+                  <ShieldCheck size={48} color="#8b5cf6" />
+                </View>
+                <Text style={styles.safetyModalTitle}>How We Protect You</Text>
               </View>
-              <Text style={styles.safetyModalTitle}>How We Protect You</Text>
+
+              {/* Body */}
+              <View style={styles.safetyModalBody}>
+                <View style={styles.safetyBulletPoint}>
+                  <Text style={styles.safetyBullet}>•</Text>
+                  <Text style={styles.safetyText}>
+                    No Accounts Required: We never ask for your name, email, or phone number.
+                  </Text>
+                </View>
+                <View style={styles.safetyBulletPoint}>
+                  <Text style={styles.safetyBullet}>•</Text>
+                  <Text style={styles.safetyText}>
+                    No IP Tracking: Your location data is not logged with your submission.
+                  </Text>
+                </View>
+                <View style={styles.safetyBulletPoint}>
+                  <Text style={styles.safetyBullet}>•</Text>
+                  <Text style={styles.safetyText}>
+                    Encrypted Storage: Your story is stored securely in our encrypted database.
+                  </Text>
+                </View>
+                <View style={styles.safetyBulletPoint}>
+                  <Text style={styles.safetyBullet}>•</Text>
+                  <Text style={styles.safetyText}>
+                    Human Moderation: All reports are reviewed to remove identifying details before publishing.
+                  </Text>
+                </View>
+              </View>
+
+              {/* Footer */}
+              <TouchableOpacity
+                style={styles.safetyModalButton}
+                onPress={() => setShowSafetyModal(false)}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.safetyModalButtonText}>I Understand & Trust</Text>
+              </TouchableOpacity>
             </View>
-
-            {/* Body */}
-            <View style={styles.safetyModalBody}>
-              <View style={styles.safetyBulletPoint}>
-                <Text style={styles.safetyBullet}>•</Text>
-                <Text style={styles.safetyText}>
-                  No Accounts Required: We never ask for your name, email, or phone number.
-                </Text>
-              </View>
-              <View style={styles.safetyBulletPoint}>
-                <Text style={styles.safetyBullet}>•</Text>
-                <Text style={styles.safetyText}>
-                  No IP Tracking: Your location data is not logged with your submission.
-                </Text>
-              </View>
-              <View style={styles.safetyBulletPoint}>
-                <Text style={styles.safetyBullet}>•</Text>
-                <Text style={styles.safetyText}>
-                  Encrypted Storage: Your story is stored securely in our encrypted database.
-                </Text>
-              </View>
-              <View style={styles.safetyBulletPoint}>
-                <Text style={styles.safetyBullet}>•</Text>
-                <Text style={styles.safetyText}>
-                  Human Moderation: All reports are reviewed to remove identifying details before publishing.
-                </Text>
-              </View>
-            </View>
-
-            {/* Footer */}
-            <TouchableOpacity
-              style={styles.safetyModalButton}
-              onPress={() => setShowSafetyModal(false)}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.safetyModalButtonText}>I Understand & Trust</Text>
-            </TouchableOpacity>
           </View>
-        </View>
-      </Modal>
+        </Modal>
       </>
     );
   };
@@ -1883,6 +1970,18 @@ export default function App() {
     }
   };
 
+  // Collaborator Banner Component
+  const CollaboratorBanner = () => (
+    <TouchableOpacity
+      style={styles.collaboratorBanner}
+      onPress={() => Linking.openURL('https://www.facebook.com/umany2/').catch(err => console.error('Failed to open URL:', err))}
+      activeOpacity={0.8}
+    >
+      <Image source={umanyLogo} style={styles.collaboratorLogo} resizeMode="contain" />
+      <Text style={styles.collaboratorText}>In collaboration with UMANY</Text>
+    </TouchableOpacity>
+  );
+
   // SDG Header Card Component
   const SDGHeaderCard = () => {
     const handlePress = () => {
@@ -1906,7 +2005,7 @@ export default function App() {
         >
           {/* Overlay */}
           <View style={styles.sdgCardOverlay} />
-          
+
           {/* Content */}
           <View style={styles.sdgCardContent}>
             {/* SDG Badge */}
@@ -2221,7 +2320,7 @@ export default function App() {
           .from('posts')
           .select('*', { count: 'exact', head: true })
           .eq('user_id', userId);
-        
+
         if (postsCountResult.error) {
           // If column doesn't exist or other error, just use 0
           console.log('Posts count query result:', postsCountResult.error.message);
@@ -2238,7 +2337,7 @@ export default function App() {
           .from('comments')
           .select('*', { count: 'exact', head: true })
           .eq('user_id', userId);
-        
+
         if (commentsCountResult.error) {
           console.log('Comments count query result:', commentsCountResult.error.message);
         } else {
@@ -2256,7 +2355,7 @@ export default function App() {
           .eq('user_id', userId)
           .order('created_at', { ascending: false })
           .limit(20);
-        
+
         if (postsDataResult.error) {
           console.log('Posts data query result:', postsDataResult.error.message);
         } else {
@@ -2274,7 +2373,7 @@ export default function App() {
           .eq('user_id', userId)
           .order('created_at', { ascending: false })
           .limit(20);
-        
+
         if (commentsDataResult.error) {
           console.log('Comments data query result:', commentsDataResult.error.message);
         } else {
@@ -2338,7 +2437,7 @@ export default function App() {
               <UserCircle size={80} color="#94a3b8" />
             </View>
             <Text style={styles.profileEmail}>{session.user.email}</Text>
-            
+
             {/* Role Badge */}
             <View
               style={[
@@ -2369,7 +2468,7 @@ export default function App() {
                 </>
               )}
             </View>
-            
+
             <View style={styles.profileStatCard}>
               {profileLoading ? (
                 <ActivityIndicator size="small" color="#60a5fa" />
@@ -2402,7 +2501,7 @@ export default function App() {
                   Stories
                 </Text>
               </TouchableOpacity>
-              
+
               <TouchableOpacity
                 style={[
                   styles.profileTabButton,
@@ -2895,7 +2994,7 @@ export default function App() {
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar style="light" />
-      
+
       {/* Main Content */}
       <View style={styles.content}>{renderTabContent()}</View>
 
@@ -3806,6 +3905,27 @@ const styles = StyleSheet.create({
   learnContentContainer: {
     paddingTop: 20,
     paddingBottom: 20,
+  },
+  collaboratorBanner: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#1e293b',
+    paddingVertical: 16,
+    marginTop: 16,
+    marginHorizontal: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#334155',
+  },
+  collaboratorText: {
+    color: '#94a3b8',
+    fontSize: 14,
+    fontWeight: '600',
+    marginTop: 8,
+  },
+  collaboratorLogo: {
+    width: 200,
+    height: 100,
   },
   sdgCard: {
     marginHorizontal: 16,
